@@ -1,25 +1,26 @@
 using GrindFest;
 using UnityEngine;
-using UnityEngine.PlayerLoop;
 
 namespace Scripts
 {
     public class Nocc : AutomaticHero
     {
+        #region ClassMembers
         
-        private MonsterBehaviour? _target = null;
+        private MonsterBehaviour? _target;
         private Vector3 _targetPosition;
-        private Nocc.States _state;
-        private readonly int _attackRange = 3;
-        private readonly float _searchRange = 15f;
-        private readonly float _retreatDistance = 5f;
+        private States _state;
+        private const int AttackRange = 3;
+        private const float SearchRange = 15f;
+        private const float RetreatDistance = 5f;
+        private List<string> _filteredItems = [];
+        private ItemBehaviour? _lastAcquiredItem;
         
-
-        private bool _hasTarget = false,
-            _inAttackRange = false,
-            _isTargetDead = false,
-            _isLowHp = false,
-            _shouldUsePotion = false;
+        private bool _hasTarget,
+            _inAttackRange,
+            _isTargetDead,
+            _isLowHp,
+            _shouldUsePotion;
 
         private enum States
         {
@@ -34,18 +35,35 @@ namespace Scripts
             Loot,
             CheckAndEquip,
         }
-        void Start()
+        
+        #endregion
+        
+        #region EventLoop
+
+        private void Start()
         {
             _state = States.Start;
         }
-        
-        void Update()
-        {
-            if (_target) _targetPosition = _target.transform.position;
-            
-            if (!IsBotting) return;
-            // transition table
 
+        private void Update()
+        {
+            // update our target position if we have a target
+            if (_target)
+            {
+                _targetPosition = _target.transform.position;
+                _inAttackRange = (this.transform.position - _target.transform.position).magnitude < SearchRange;
+            }
+            
+            // update hp healing flag
+            if (this.Health < MaxHealth * 0.3 ) _isLowHp = true;
+            
+            // skip state behavior if script is not running
+            
+            if (IsBotting) return;
+            
+            
+            #region TransitionTable
+            
             switch (_state)
             {
                 case States.Start:
@@ -56,12 +74,13 @@ namespace Scripts
 
                 case States.Idle:
                 {
+                  
                     if (_isLowHp)
                     {
                         _state = States.Retreat;
                         break;
                     }
-                    
+                  
                     if (_hasTarget && !_inAttackRange)
                     {
                         _state = States.MoveToTarget;
@@ -87,7 +106,7 @@ namespace Scripts
 
                 case States.Retreat:
                 {
-                    RunAwayFromNearestEnemy(_retreatDistance);
+                    RunAwayFromNearestEnemy(RetreatDistance);
                     
                     if (_shouldUsePotion)
                     {
@@ -97,11 +116,13 @@ namespace Scripts
 
                     if (this.Health >= MaxHealth / 2)
                     {
+                        // healed to past 50%, okay to heal again
                         _shouldUsePotion = true;
                         _state = States.Idle;
                         break;
                     }
                     
+                    // keep running away if not ready to heal and hp not yet >50%
                     _state = States.Retreat;
                     break;
                 }
@@ -112,29 +133,27 @@ namespace Scripts
                     {
                         DrinkHealthPotion();
                         Say($"Drank potion: {this.HealthPotionCount()} left.");
-                        _shouldUsePotion = false;
+                        _shouldUsePotion = false; // prevents repeatedly attempting to use potions
                     }
                     
+                    // go back to retreating while we heal.
                     _state = States.Retreat;
-                    
                     break;
                 }
 
                 case States.MoveToTarget:
-                {
-                    GoTo(_targetPosition, _attackRange);
+                { 
+                    GoTo(_targetPosition, AttackRange); 
                     _state = States.Idle;
-                    
                     break;
                 }
 
                 case States.FindTarget:
                 {
-                    _target = FindTarget(_searchRange);
+                    _target = FindTarget(SearchRange);
 
                     if (_target)
                     {
-                        // found target, go back to idle
                         _hasTarget = true;
                         _state = States.Idle;
                         break;
@@ -148,18 +167,23 @@ namespace Scripts
 
                 case States.MoveAround:
                 {
+                    // run around to search for a new target
                     RunAroundInArea();
-                    
                     _state = States.Idle;
                     break;
                 }
 
                 case States.Attack:
                 {
-                    // attack()
+                    // attack at target position
+                    this.Character.UseSkill(this.Character.Combat.AttackSkill, null, _targetPosition);
+                    
+                    // check if target died
+                    if (_target && _target.Health.IsDead) _isTargetDead = true;
                     
                     if (_isTargetDead)
                     {
+                        _hasTarget = false;
                         _state = States.Loot;
                         break;
                     }
@@ -170,7 +194,7 @@ namespace Scripts
 
                 case States.Loot:
                 {
-                    var itemFound = scanForItemsFilterAndReturnNearestItem();
+                    var itemFound = GetNearestFilteredItem(_filteredItems);
                     if (!itemFound)
                     {
                         _state = States.Idle;
@@ -181,7 +205,8 @@ namespace Scripts
                         _state = States.Loot;
                         break;
                     }
-
+                    Say($"Acquired: {itemFound.name}");
+                    _lastAcquiredItem = itemFound;
                     _state = States.CheckAndEquip;
                     break;
                     
@@ -189,7 +214,7 @@ namespace Scripts
                 
                 case States.CheckAndEquip:
                 {
-                    //CheckAndEquip()
+                    CheckAndEquip();
                     _state = States.Loot;
                     break;
                 }
@@ -200,9 +225,22 @@ namespace Scripts
                     break;
                 }
             }
+            #endregion
+        }
+        
+        #endregion
+
+        #region ClassMethods
+        
+        // returns nearest item if not included on filteredItems
+        private ItemBehaviour? GetNearestFilteredItem(List<string> filteredItems)
+        {
+            var nearestItem = FindNearestItemOnGround();
+
+            return !filteredItems.Contains(nearestItem.name) ? nearestItem : null;
         }
 
-        // function will return clo
+        // returns the closest target in search range or null
         private MonsterBehaviour? FindTarget(float searchRange)
         {
             Dictionary<MonsterBehaviour, float> targetTable = new Dictionary<MonsterBehaviour, float>();
@@ -212,7 +250,7 @@ namespace Scripts
             foreach (var target in allTargets)
             {
                 var distance = Vector3.Distance(target.transform.position, this.transform.position);
-                if (distance < searchRange) targetTable.Add(target, distance);
+                if (distance < searchRange && !target.Health.IsDead) targetTable.Add(target, distance);
             }
 
             // no target within range
@@ -224,6 +262,12 @@ namespace Scripts
             return targetTable.First().Key;
         }
         
+        // check if an item is an upgrade and equips it.
+        private bool CheckAndEquip()
+        {
+            return false;
+        }
+        #endregion
     }
 }
 
