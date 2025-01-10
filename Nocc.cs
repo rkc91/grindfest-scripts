@@ -1,5 +1,8 @@
 using GrindFest;
 using UnityEngine;
+using System.Collections.Generic;
+using System.Linq;
+using GrindFest.Characters;
 
 namespace Scripts
 {
@@ -8,19 +11,20 @@ namespace Scripts
         #region ClassMembers
         
         private MonsterBehaviour? _target;
-        private Vector3 _targetPosition;
         private States _state;
-        private const int AttackRange = 3;
+        private const float AttackRange = 2f;
         private const float SearchRange = 15f;
-        private const float RetreatDistance = 5f;
-        private List<string> _filteredItems = [];
+        private const float RetreatDistance = 10f;
+        private float _targetDistance;
+        private HashSet<string>? _filteredItems;
         private ItemBehaviour? _lastAcquiredItem;
+        private States _lastState;
+        private List<string> _ignoredMobs = new List<string>() { "Crow" };
         
-        private bool _hasTarget,
+        private bool 
             _inAttackRange,
-            _isTargetDead,
             _isLowHp,
-            _shouldUsePotion;
+            _canUsePotion;
 
         private enum States
         {
@@ -42,24 +46,29 @@ namespace Scripts
 
         private void Start()
         {
+            _target = null;
+            _filteredItems = new HashSet<string>();
+            _inAttackRange = false;
+            _isLowHp = false;
+            _canUsePotion = true;
             _state = States.Start;
+            _lastState = States.Start;
         }
 
         private void Update()
         {
-            // update our target position if we have a target
-            if (_target)
+            // check if at gold cap
+            if (Party.Party.Gold >= Party.Party.GoldCap && !_filteredItems!.Contains("Gold Coins"))
             {
-                _targetPosition = _target.transform.position;
-                _inAttackRange = (this.transform.position - _target.transform.position).magnitude < SearchRange;
+                Say("Over Gold Cap!!");
+                _filteredItems!.Add("Gold Coins");
             }
             
-            // update hp healing flag
-            if (this.Health < MaxHealth * 0.3 ) _isLowHp = true;
-            
             // skip state behavior if script is not running
+            if (!IsBotting) return;
             
-            if (IsBotting) return;
+            // turn off botting
+            if (Input.GetKeyDown(KeyCode.F4)) IsBotting = false;
             
             
             #region TransitionTable
@@ -75,26 +84,29 @@ namespace Scripts
                 case States.Idle:
                 {
                   
-                    if (_isLowHp)
+                    if (LowHp(30))
                     {
                         _state = States.Retreat;
                         break;
                     }
                   
-                    if (_hasTarget && !_inAttackRange)
+                    if (_target)
                     {
+                        
+                        if (InAttackRange(_target, AttackRange))
+                        {
+                            _state = States.Attack;
+                            break;
+                        }
+                        
+                        // out of range
                         _state = States.MoveToTarget;
                         break;
                     }
                     
-                    if (_hasTarget && _inAttackRange)
+                    if (!_target)
                     {
-                        _state = States.Attack;
-                        break;
-                    }
-
-                    if (!_hasTarget)
-                    {
+                        // find new target
                         _state = States.FindTarget;
                         break;
                     }
@@ -107,33 +119,32 @@ namespace Scripts
                 case States.Retreat:
                 {
                     RunAwayFromNearestEnemy(RetreatDistance);
-                    
-                    if (_shouldUsePotion)
+
+                    if (Equipment[EquipmentSlot.RightHand].name != "Vial of Health")
                     {
+                        _canUsePotion = true;
                         _state = States.Heal;
                         break;
                     }
 
-                    if (this.Health >= MaxHealth / 2)
+                    if (this.Health >= MaxHealth * 0.8)
                     {
-                        // healed to past 50%, okay to heal again
-                        _shouldUsePotion = true;
                         _state = States.Idle;
                         break;
                     }
                     
-                    // keep running away if not ready to heal and hp not yet >50%
+                    // keep running away if not ready to heal and hp not yet >80%
                     _state = States.Retreat;
                     break;
                 }
 
                 case States.Heal:
                 {
-                    if (HealthPotionCount() > 0)
+                    if (HealthPotionCount() > 0 && _canUsePotion)
                     {
                         DrinkHealthPotion();
+                        _canUsePotion = false;
                         Say($"Drank potion: {this.HealthPotionCount()} left.");
-                        _shouldUsePotion = false; // prevents repeatedly attempting to use potions
                     }
                     
                     // go back to retreating while we heal.
@@ -142,31 +153,40 @@ namespace Scripts
                 }
 
                 case States.MoveToTarget:
-                { 
-                    GoTo(_targetPosition, AttackRange); 
+                {
+                    if (_target)
+                    {
+                        GoTo(_target.transform.position, AttackRange);
+                        _state = States.Idle;
+                        break;
+                    }
+                    
                     _state = States.Idle;
                     break;
                 }
 
                 case States.FindTarget:
                 {
-                    _target = FindTarget(SearchRange);
-
+                    _target = FindTarget(SearchRange, _ignoredMobs);
+                    
                     if (_target)
                     {
-                        _hasTarget = true;
+                        Say($"Target: {_target.name}: Distance: {GetTargetDistance(_target).ToString("0.0")}");
                         _state = States.Idle;
                         break;
                     }
-                    
+
                     // no target found, move to find one
-                    _hasTarget = false;
+                    Say("No Target; Moving...");
+                    _target = null;
+                    
                     _state = States.MoveAround;
                     break;
                 }
 
                 case States.MoveAround:
                 {
+                    //Say("MoveAround");
                     // run around to search for a new target
                     RunAroundInArea();
                     _state = States.Idle;
@@ -175,39 +195,45 @@ namespace Scripts
 
                 case States.Attack:
                 {
-                    // attack at target position
-                    this.Character.UseSkill(this.Character.Combat.AttackSkill, null, _targetPosition);
-                    
-                    // check if target died
-                    if (_target && _target.Health.IsDead) _isTargetDead = true;
-                    
-                    if (_isTargetDead)
+                    if (_target)
                     {
-                        _hasTarget = false;
-                        _state = States.Loot;
+                        if (_target.Health.IsDead)
+                        {
+                            Say("Target Dead");
+                            _target = null;
+                            _state = States.Loot;
+                            break;
+                        }
+                       
+                        //Say($"Attacking. Target Distance: {GetTargetDistance(_target)}.");
+                        this.Character.UseSkill(this.Character.Combat.AttackSkill, null, _target!.transform.position);
+                        _state = States.Idle;
                         break;
+                        
                     }
-
+                    
+                    // no target. go back to idle.
                     _state = States.Idle;
                     break;
                 }
 
                 case States.Loot:
                 {
-                    var itemFound = GetNearestFilteredItem(_filteredItems);
+                    var itemFound = GetNearestFilteredItem(_filteredItems!);
                     if (!itemFound)
                     {
                         _state = States.Idle;
                         break;
                     }
-                    if (!PickUp(itemFound))
+                    if (PickUp(itemFound))
                     {
-                        _state = States.Loot;
+                        _lastAcquiredItem = itemFound;
+                        Say($"Acquired: {itemFound.name}");
+                        _state = States.CheckAndEquip;
                         break;
                     }
-                    Say($"Acquired: {itemFound.name}");
-                    _lastAcquiredItem = itemFound;
-                    _state = States.CheckAndEquip;
+                    
+                    _state = States.Loot;
                     break;
                     
                 }
@@ -233,15 +259,15 @@ namespace Scripts
         #region ClassMethods
         
         // returns nearest item if not included on filteredItems
-        private ItemBehaviour? GetNearestFilteredItem(List<string> filteredItems)
+        private ItemBehaviour? GetNearestFilteredItem(HashSet<string> filteredItems)
         {
-            var nearestItem = FindNearestItemOnGround();
+            var nearestItems = FindItemsOnGround();
 
-            return !filteredItems.Contains(nearestItem.name) ? nearestItem : null;
+            return nearestItems?.FirstOrDefault(item => !filteredItems.Contains(item.name));
         }
 
-        // returns the closest target in search range or null
-        private MonsterBehaviour? FindTarget(float searchRange)
+        // returns the closest living target in search range or null
+        private MonsterBehaviour? FindTarget(float searchRange, List<string> ignoredMobs)
         {
             Dictionary<MonsterBehaviour, float> targetTable = new Dictionary<MonsterBehaviour, float>();
             
@@ -250,14 +276,20 @@ namespace Scripts
             foreach (var target in allTargets)
             {
                 var distance = Vector3.Distance(target.transform.position, this.transform.position);
-                if (distance < searchRange && !target.Health.IsDead) targetTable.Add(target, distance);
+                if (distance < searchRange &&
+                    !target.Health.IsDead &&
+                    !ignoredMobs.Contains(target.name)
+                    && Mathf.Abs(target.transform.position.y - this.transform.position.y) < 3)
+                {
+                    targetTable.Add(target, distance);
+                }
             }
 
             // no target within range
             if (targetTable.Count == 0) return null;
             
             // sort by distance and return closest
-            targetTable = targetTable.OrderByDescending(x => x.Value)
+            targetTable = targetTable.ToList().OrderBy(x => x.Value)
                 .ToDictionary(x => x.Key, x => x.Value);
             return targetTable.First().Key;
         }
@@ -265,7 +297,28 @@ namespace Scripts
         // check if an item is an upgrade and equips it.
         private bool CheckAndEquip()
         {
+            //_target.Character.MovementState.
             return false;
+        }
+        
+        // returns distance to the target
+        private float GetTargetDistance(MonsterBehaviour target)
+        {
+            var distance = Vector3.Distance(this.transform.position, target.transform.position);
+            return distance;
+        }
+        
+        // returns if were in attack range of target
+        private bool InAttackRange(MonsterBehaviour target, float range)
+        {
+            return GetTargetDistance(target) <= range;
+        }
+
+        // returns if HP is low or not
+        private bool LowHp(float percentage)
+        {
+            percentage /= 100f;
+            return this.Health < this.MaxHealth * percentage;
         }
         #endregion
     }
