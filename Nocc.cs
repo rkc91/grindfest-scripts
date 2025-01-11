@@ -1,8 +1,14 @@
+// ReSharper disable RedundantUsingDirective
+// ReSharper disable UseCollectionExpression
 using GrindFest;
 using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 using GrindFest.Characters;
+using System;
+using System.Collections;
+using static Scripts.GearUtilities;
+
 
 namespace Scripts
 {
@@ -15,16 +21,23 @@ namespace Scripts
         private const float AttackRange = 2f;
         private const float SearchRange = 15f;
         private const float RetreatDistance = 10f;
-        private float _targetDistance;
         private HashSet<string>? _filteredItems;
         private ItemBehaviour? _lastAcquiredItem;
-        private States _lastState;
-        private List<string> _ignoredMobs = new List<string>() { "Crow" };
+        private bool _canUsePotion;
+
+        private static readonly List<string> IgnoredMobs = new List<string>()
+        {
+            "Crow"
+        };
         
-        private bool 
-            _inAttackRange,
-            _isLowHp,
-            _canUsePotion;
+        private static readonly List<string> WantedWeaponTypes = new List<string>()
+        {
+            "Axe",
+            "Sword",
+            "TwoHandedSword",
+            "Spear",
+            "Mace"
+        };
 
         private enum States
         {
@@ -43,20 +56,19 @@ namespace Scripts
         #endregion
         
         #region EventLoop
-
+        
         private void Start()
         {
             _target = null;
             _filteredItems = new HashSet<string>();
-            _inAttackRange = false;
-            _isLowHp = false;
             _canUsePotion = true;
             _state = States.Start;
-            _lastState = States.Start;
         }
 
         private void Update()
         {
+            //Debug.Log(_state.ToString());
+            
             // check if at gold cap
             if (Party.Party.Gold >= Party.Party.GoldCap && !_filteredItems!.Contains("Gold Coins"))
             {
@@ -67,9 +79,8 @@ namespace Scripts
             // skip state behavior if script is not running
             if (!IsBotting) return;
             
-            // turn off botting
+            // turn off AI
             if (Input.GetKeyDown(KeyCode.F4)) IsBotting = false;
-            
             
             #region TransitionTable
             
@@ -86,6 +97,7 @@ namespace Scripts
                   
                     if (LowHp(30))
                     {
+                        Debug.Log("LowHp");
                         _state = States.Retreat;
                         break;
                     }
@@ -119,8 +131,8 @@ namespace Scripts
                 case States.Retreat:
                 {
                     RunAwayFromNearestEnemy(RetreatDistance);
-
-                    if (Equipment[EquipmentSlot.RightHand].name != "Vial of Health")
+                    
+                    if (Character.Equipment[EquipmentSlot.RightHand].Item.name != "Vial of Health")
                     {
                         _canUsePotion = true;
                         _state = States.Heal;
@@ -167,11 +179,11 @@ namespace Scripts
 
                 case States.FindTarget:
                 {
-                    _target = FindTarget(SearchRange, _ignoredMobs);
+                    _target = FindTarget(SearchRange, IgnoredMobs);
                     
                     if (_target)
                     {
-                        Say($"Target: {_target.name}: Distance: {GetTargetDistance(_target).ToString("0.0")}");
+                        Say($"Target: {_target.name}: Distance: {GetTargetDistance(_target):0.0}");
                         _state = States.Idle;
                         break;
                     }
@@ -186,7 +198,6 @@ namespace Scripts
 
                 case States.MoveAround:
                 {
-                    //Say("MoveAround");
                     // run around to search for a new target
                     RunAroundInArea();
                     _state = States.Idle;
@@ -225,24 +236,19 @@ namespace Scripts
                         _state = States.Idle;
                         break;
                     }
-                    if (PickUp(itemFound))
+                    
+                    if (!PickUp(itemFound))
                     {
-                        _lastAcquiredItem = itemFound;
-                        Say($"Acquired: {itemFound.name}");
-                        _state = States.CheckAndEquip;
+                        _state = States.Loot;
                         break;
                     }
                     
+                    Say($"Acquired: {itemFound.name}");
+                    CheckAndEquip(itemFound);
+                    
                     _state = States.Loot;
                     break;
                     
-                }
-                
-                case States.CheckAndEquip:
-                {
-                    CheckAndEquip();
-                    _state = States.Loot;
-                    break;
                 }
 
                 default:
@@ -257,6 +263,15 @@ namespace Scripts
         #endregion
 
         #region ClassMethods
+        
+        // listen for Say() commands
+        public override void OnSay(string what, Transform target)
+        {
+            if (what.ToLower() == "loot")
+            {
+                _state = States.Loot;
+            }
+        }
         
         // returns nearest item if not included on filteredItems
         private ItemBehaviour? GetNearestFilteredItem(HashSet<string> filteredItems)
@@ -294,13 +309,6 @@ namespace Scripts
             return targetTable.First().Key;
         }
         
-        // check if an item is an upgrade and equips it.
-        private bool CheckAndEquip()
-        {
-            //_target.Character.MovementState.
-            return false;
-        }
-        
         // returns distance to the target
         private float GetTargetDistance(MonsterBehaviour target)
         {
@@ -320,6 +328,26 @@ namespace Scripts
             percentage /= 100f;
             return this.Health < this.MaxHealth * percentage;
         }
+        
+        // check if an item is an upgrade and equips it.
+        private bool CheckAndEquip(ItemBehaviour item)
+        {
+            if (!item) throw new ArgumentNullException(nameof(item));
+            
+            if (!MeetsStatRequirements(item, this)) return false;
+
+            if ((!item.Weapon || !MeetsStatRequirements(item, this) ||
+                 !IsWeaponUpgrade(item, WantedWeaponTypes, this))
+                &&
+                (!item.Armor || !MeetsStatRequirements(item, this) ||
+                 !IsArmorUpgrade(item, this))) return false;
+            
+            Equip(item);
+            Say($"Upgrade! Equipped: {item.name}");
+            return true;
+
+        }
+        
         #endregion
     }
 }
