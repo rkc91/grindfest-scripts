@@ -7,7 +7,7 @@ using GrindFest.Characters;
 using System;
 using System.Collections;
 
-namespace Scripts
+namespace Scripts.Utilities
 {
     public static class TargetUtilities
     {
@@ -23,20 +23,8 @@ namespace Scripts
             filteredItems.AddRange(nearestItems);
             filteredItems.RemoveAll(item => filteredItemsList.Contains(item.name));
             
-            float? closestDistance = null;
-            var closestItem = filteredItems[0];
-
-            // find the closest item
-            foreach (var item in filteredItems)
-            {
-                var distance = Vector3.Distance(hero.transform.position, item.transform.position);
-
-                if (closestDistance != null && !(distance < closestDistance)) continue;
-                closestDistance = distance;
-                closestItem = item;
-            }
-
-            return closestItem;
+            return filteredItems.Count == 0 ? null : filteredItems
+                .OrderBy(item => Vector3.Distance(item.transform.position, hero.transform.position)).FirstOrDefault();
         }
         
         // returns the closest living target in search range to hero or null

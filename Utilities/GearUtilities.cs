@@ -6,8 +6,9 @@ using System.Linq;
 using GrindFest.Characters;
 using System;
 using System.Collections;
+using GrindFest;
 
-namespace Scripts
+namespace Scripts.Utilities
 {
     public static class GearUtilities
     {
@@ -19,7 +20,7 @@ namespace Scripts
                    item.equipable.RequiredStrength <= hero.Character.Strength &&
                    item.equipable.RequiredIntelligence <= hero.Character.Intelligence;
         }
-
+        
         private static float GetWeaponDps(ItemBehaviour item)
         {
             return ((item.Weapon.MinDamage + item.Weapon.MaxDamage) / 2f) / item.Weapon.BaseAttackSpeed;
@@ -53,7 +54,7 @@ namespace Scripts
             return GetArmorValue(item) > GetArmorValue(hero.Character.Equipment[itemSlot].Item);
         }
         
-        // check if an item is an upgrade and equips it.
+        // returns a successful equip
         public static bool CheckForUpgradeAndEquip(ItemBehaviour item, List<string> wantedWeaponTypes,
             AutomaticHero hero)
         {
@@ -61,11 +62,9 @@ namespace Scripts
             
             if (!MeetsStatRequirements(item, hero)) return false;
 
-            if ((!item.Weapon || !MeetsStatRequirements(item, hero) ||
-                 !IsWeaponUpgrade(item, wantedWeaponTypes, hero))
+            if ((!item.Weapon || !IsWeaponUpgrade(item, wantedWeaponTypes, hero))
                 &&
-                (!item.Armor || !MeetsStatRequirements(item, hero) ||
-                 !IsArmorUpgrade(item, hero))) return false;
+                (!item.Armor || !IsArmorUpgrade(item, hero))) return false;
             
             hero.Equip(item);
             hero.Say($"Upgrade! Equipped: {item.name}");

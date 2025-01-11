@@ -7,8 +7,9 @@ using System.Linq;
 using GrindFest.Characters;
 using System;
 using System.Collections;
-using static Scripts.GearUtilities;
-using static Scripts.TargetUtilities;
+using static Scripts.Utilities.GearUtilities;
+using static Scripts.Utilities.TargetUtilities;
+using Random = UnityEngine.Random;
 
 
 namespace Scripts
@@ -21,7 +22,7 @@ namespace Scripts
         private States _state;
         private const float AttackRange = 2f;
         private const float SearchRange = 15f;
-        private const float RetreatDistance = 10f;
+        private const float RetreatDistance = 8f;
         private HashSet<string>? _filteredItems;
         private bool _canUsePotion;
 
@@ -50,6 +51,7 @@ namespace Scripts
             FindTarget,
             Attack,
             Loot,
+            Stop,
         }
         
         #endregion
@@ -66,7 +68,7 @@ namespace Scripts
 
         private void Update()
         {
-            //Debug.Log(_state.ToString());
+            Debug.Log(_state.ToString());
             
             // check if at gold cap
             if (Party.Party.Gold >= Party.Party.GoldCap && !_filteredItems!.Contains("Gold Coins"))
@@ -130,8 +132,8 @@ namespace Scripts
                 case States.Retreat:
                 {
                     RunAwayFromNearestEnemy(RetreatDistance);
-                    
-                    if (Character.Equipment[EquipmentSlot.RightHand].Item.name != "Vial of Health")
+                    Debug.Log(_canUsePotion);
+                    if (Character.Equipment[EquipmentSlot.RightHand] == null)
                     {
                         _canUsePotion = true;
                         _state = States.Heal;
@@ -232,22 +234,34 @@ namespace Scripts
                     var itemFound = GetNearestFilteredItem(_filteredItems!, this);
                     if (!itemFound)
                     {
+                        Debug.Log("No Item Found");
                         _state = States.Idle;
                         break;
                     }
                     
-                    if (!PickUp(itemFound))
+                    if (CheckForUpgradeAndEquip(itemFound, WantedWeaponTypes, this))
                     {
                         _state = States.Loot;
                         break;
                     }
+
+                    if (!itemFound.Armor && !itemFound.Weapon )
+                    {
+                        if(PickUp(itemFound)) Say($"Acquired: {itemFound.name}");
+                        _state = States.Loot;
+                        break;
+                    }
                     
-                    Say($"Acquired: {itemFound.name}");
-                    CheckForUpgradeAndEquip(itemFound, WantedWeaponTypes, this);
-                    
-                    _state = States.Loot;
+                    _state = States.Idle;
                     break;
                     
+                }
+                
+                case States.Stop:
+                {
+                    // call this state to give more say commands.
+                    
+                    break;
                 }
 
                 default:
@@ -267,10 +281,13 @@ namespace Scripts
         // listen for Say() commands
         public override void OnSay(string what, Transform target)
         {
-            if (what.ToLower() == "loot")
+            _state = what.ToLower() switch
             {
-                _state = States.Loot;
-            }
+                "loot" => _state = States.Loot,
+                "stop" => _state = States.Stop,
+                "start" => _state = States.Start,
+                _ => _state = States.Idle
+            };
         }
         
         // returns if HP is low or not
