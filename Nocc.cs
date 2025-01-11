@@ -8,6 +8,7 @@ using GrindFest.Characters;
 using System;
 using System.Collections;
 using static Scripts.GearUtilities;
+using static Scripts.TargetUtilities;
 
 
 namespace Scripts
@@ -22,7 +23,6 @@ namespace Scripts
         private const float SearchRange = 15f;
         private const float RetreatDistance = 10f;
         private HashSet<string>? _filteredItems;
-        private ItemBehaviour? _lastAcquiredItem;
         private bool _canUsePotion;
 
         private static readonly List<string> IgnoredMobs = new List<string>()
@@ -50,7 +50,6 @@ namespace Scripts
             FindTarget,
             Attack,
             Loot,
-            CheckAndEquip,
         }
         
         #endregion
@@ -105,7 +104,7 @@ namespace Scripts
                     if (_target)
                     {
                         
-                        if (InAttackRange(_target, AttackRange))
+                        if (InAttackRange(_target, AttackRange, this))
                         {
                             _state = States.Attack;
                             break;
@@ -179,11 +178,11 @@ namespace Scripts
 
                 case States.FindTarget:
                 {
-                    _target = FindTarget(SearchRange, IgnoredMobs);
+                    _target = FindTarget(SearchRange, IgnoredMobs, this);
                     
                     if (_target)
                     {
-                        Say($"Target: {_target.name}: Distance: {GetTargetDistance(_target):0.0}");
+                        Say($"Target: {_target.name}: Distance: {GetTargetDistance(_target, this):0.0}");
                         _state = States.Idle;
                         break;
                     }
@@ -230,7 +229,7 @@ namespace Scripts
 
                 case States.Loot:
                 {
-                    var itemFound = GetNearestFilteredItem(_filteredItems!);
+                    var itemFound = GetNearestFilteredItem(_filteredItems!, this);
                     if (!itemFound)
                     {
                         _state = States.Idle;
@@ -244,7 +243,7 @@ namespace Scripts
                     }
                     
                     Say($"Acquired: {itemFound.name}");
-                    CheckAndEquip(itemFound);
+                    CheckForUpgradeAndEquip(itemFound, WantedWeaponTypes, this);
                     
                     _state = States.Loot;
                     break;
@@ -257,6 +256,7 @@ namespace Scripts
                     break;
                 }
             }
+            
             #endregion
         }
         
@@ -273,79 +273,11 @@ namespace Scripts
             }
         }
         
-        // returns nearest item if not included on filteredItems
-        private ItemBehaviour? GetNearestFilteredItem(HashSet<string> filteredItems)
-        {
-            var nearestItems = FindItemsOnGround();
-
-            return nearestItems?.FirstOrDefault(item => !filteredItems.Contains(item.name));
-        }
-
-        // returns the closest living target in search range or null
-        private MonsterBehaviour? FindTarget(float searchRange, List<string> ignoredMobs)
-        {
-            Dictionary<MonsterBehaviour, float> targetTable = new Dictionary<MonsterBehaviour, float>();
-            
-            var allTargets = FindObjectsByType<MonsterBehaviour>(FindObjectsSortMode.None);
-            
-            foreach (var target in allTargets)
-            {
-                var distance = Vector3.Distance(target.transform.position, this.transform.position);
-                if (distance < searchRange &&
-                    !target.Health.IsDead &&
-                    !ignoredMobs.Contains(target.name)
-                    && Mathf.Abs(target.transform.position.y - this.transform.position.y) < 3)
-                {
-                    targetTable.Add(target, distance);
-                }
-            }
-
-            // no target within range
-            if (targetTable.Count == 0) return null;
-            
-            // sort by distance and return closest
-            targetTable = targetTable.ToList().OrderBy(x => x.Value)
-                .ToDictionary(x => x.Key, x => x.Value);
-            return targetTable.First().Key;
-        }
-        
-        // returns distance to the target
-        private float GetTargetDistance(MonsterBehaviour target)
-        {
-            var distance = Vector3.Distance(this.transform.position, target.transform.position);
-            return distance;
-        }
-        
-        // returns if were in attack range of target
-        private bool InAttackRange(MonsterBehaviour target, float range)
-        {
-            return GetTargetDistance(target) <= range;
-        }
-
         // returns if HP is low or not
         private bool LowHp(float percentage)
         {
             percentage /= 100f;
             return this.Health < this.MaxHealth * percentage;
-        }
-        
-        // check if an item is an upgrade and equips it.
-        private bool CheckAndEquip(ItemBehaviour item)
-        {
-            if (!item) throw new ArgumentNullException(nameof(item));
-            
-            if (!MeetsStatRequirements(item, this)) return false;
-
-            if ((!item.Weapon || !MeetsStatRequirements(item, this) ||
-                 !IsWeaponUpgrade(item, WantedWeaponTypes, this))
-                &&
-                (!item.Armor || !MeetsStatRequirements(item, this) ||
-                 !IsArmorUpgrade(item, this))) return false;
-            
-            Equip(item);
-            Say($"Upgrade! Equipped: {item.name}");
-            return true;
-
         }
         
         #endregion

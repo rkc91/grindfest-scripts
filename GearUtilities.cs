@@ -1,13 +1,17 @@
+// ReSharper disable RedundantUsingDirective
 using GrindFest;
-using ItemBehaviour = GrindFest.ItemBehaviour;
+using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
+using GrindFest.Characters;
+using System;
+using System.Collections;
 
 namespace Scripts
 {
     public static class GearUtilities
     {
-    
-        public static bool MeetsStatRequirements(ItemBehaviour item, AutomaticHero hero)
+        private static bool MeetsStatRequirements(ItemBehaviour item, AutomaticHero hero)
         {
             if (!item.equipable) return false;
             
@@ -16,17 +20,17 @@ namespace Scripts
                    item.equipable.RequiredIntelligence <= hero.Character.Intelligence;
         }
 
-        public static float GetWeaponDps(ItemBehaviour item)
+        private static float GetWeaponDps(ItemBehaviour item)
         {
             return ((item.Weapon.MinDamage + item.Weapon.MaxDamage) / 2f) / item.Weapon.BaseAttackSpeed;
         }
 
-        public static float GetArmorValue(ItemBehaviour item)
+        private static float GetArmorValue(ItemBehaviour item)
         {
             return item.Armor.Armor;
         }
-    
-        public static bool IsWeaponUpgrade(ItemBehaviour item, List<string> wantedWeaponTypes, AutomaticHero hero)
+
+        private static bool IsWeaponUpgrade(ItemBehaviour item, List<string> wantedWeaponTypes, AutomaticHero hero)
         {
             // bad type
             if (!wantedWeaponTypes.Contains(item.Weapon.WeaponType.ToString())) return false;
@@ -38,8 +42,8 @@ namespace Scripts
             
             return (GetWeaponDps(item) > GetWeaponDps(currentWeapon.Item));
         }
-        
-        public static bool IsArmorUpgrade(ItemBehaviour item, AutomaticHero hero)
+
+        private static bool IsArmorUpgrade(ItemBehaviour item, AutomaticHero hero)
         {
             var itemSlot = item.equipable.Slot;
             
@@ -47,6 +51,26 @@ namespace Scripts
             if (!hero.Character.Equipment[itemSlot]) return true;
                 
             return GetArmorValue(item) > GetArmorValue(hero.Character.Equipment[itemSlot].Item);
+        }
+        
+        // check if an item is an upgrade and equips it.
+        public static bool CheckForUpgradeAndEquip(ItemBehaviour item, List<string> wantedWeaponTypes,
+            AutomaticHero hero)
+        {
+            if (!item) throw new ArgumentNullException(nameof(item));
+            
+            if (!MeetsStatRequirements(item, hero)) return false;
+
+            if ((!item.Weapon || !MeetsStatRequirements(item, hero) ||
+                 !IsWeaponUpgrade(item, wantedWeaponTypes, hero))
+                &&
+                (!item.Armor || !MeetsStatRequirements(item, hero) ||
+                 !IsArmorUpgrade(item, hero))) return false;
+            
+            hero.Equip(item);
+            hero.Say($"Upgrade! Equipped: {item.name}");
+            
+            return true;
         }
     }
 }
