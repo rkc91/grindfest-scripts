@@ -62,12 +62,19 @@ namespace Scripts.Utilities
             
             if (!MeetsStatRequirements(item, hero)) return false;
 
-            if ((!item.Weapon || !IsWeaponUpgrade(item, wantedWeaponTypes, hero))
-                &&
-                (!item.Armor || !IsArmorUpgrade(item, hero))) return false;
+            if ((!item.Weapon || !IsWeaponUpgrade(item, wantedWeaponTypes, hero)) &&
+                (!item.Armor || !IsArmorUpgrade(item, hero)) ||
+                !item.equipable) return false;
+
+            var replacedItem = hero.Character.Equipment[item.equipable.Slot] != null ?
+                hero.Character.Equipment[item.equipable.Slot].Item : null;
+            
+            if(!replacedItem) Debug.Log("No weapon to replace.");
             
             hero.Equip(item);
             hero.Say($"Upgrade! Equipped: {item.name}");
+            
+            if(replacedItem) hero.PickUp(replacedItem);
             
             return true;
         }

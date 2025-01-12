@@ -18,10 +18,14 @@ namespace Scripts.Utilities
             var nearestItems = hero.FindItemsOnGround();
             if (nearestItems == null) return null;
             
-            // apply item filter
             List<ItemBehaviour> filteredItems = new List<ItemBehaviour>();
             filteredItems.AddRange(nearestItems);
-            filteredItems.RemoveAll(item => filteredItemsList.Contains(item.name));
+            
+            // ignore any flags
+            filteredItems.RemoveAll(item => item.name.Contains("Flag"));
+            
+            // apply item filter list
+            filteredItems.RemoveAll(item => filteredItemsList.Contains(item.Name));
             
             return filteredItems.Count == 0 ? null : filteredItems
                 .OrderBy(item => Vector3.Distance(item.transform.position, hero.transform.position)).FirstOrDefault();
@@ -37,10 +41,14 @@ namespace Scripts.Utilities
             foreach (var target in allTargets)
             {
                 var distance = Vector3.Distance(target.transform.position, hero.transform.position);
+                
+                // valid target conditions
                 if (distance < searchRange &&
                     !target.Health.IsDead &&
-                    !ignoredMobs.Contains(target.name)
-                    && Mathf.Abs(target.transform.position.y - hero.transform.position.y) < 3)
+                    !ignoredMobs.Contains(target.name) &&
+                    Mathf.Abs(target.transform.position.y - hero.transform.position.y) < 3 &&
+                    !target.Character.IsInWater)
+                    
                 {
                     targetTable.Add(target, distance);
                 }

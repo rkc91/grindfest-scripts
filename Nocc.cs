@@ -23,8 +23,11 @@ namespace Scripts
         private const float AttackRange = 2f;
         private const float SearchRange = 15f;
         private const float RetreatDistance = 8f;
-        private HashSet<string>? _filteredItems;
+        private HashSet<string>? _filteredItems = new HashSet<string>() { "Flag" };
         private bool _canUsePotion;
+        private AreaBehaviour? _currentArea;
+        private FlagBehaviour? _destinationFlag;
+        private int _flagCount;
 
         private static readonly List<string> IgnoredMobs = new List<string>()
         {
@@ -39,7 +42,7 @@ namespace Scripts
             "Spear",
             "Mace"
         };
-
+        
         private enum States
         {
             Start,
@@ -48,6 +51,7 @@ namespace Scripts
             Heal,
             MoveToTarget,
             MoveAround,
+            Navigate,
             FindTarget,
             Attack,
             Loot,
@@ -60,15 +64,25 @@ namespace Scripts
         
         private void Start()
         {
+            _currentArea = this.CurrentArea;
             _target = null;
             _filteredItems = new HashSet<string>();
             _canUsePotion = true;
-            _state = States.Start;
+            _state = States.Stop;
         }
 
         private void Update()
         {
-            Debug.Log(_state.ToString());
+            _currentArea = this.CurrentArea;
+            _flagCount = FlagBehaviour.Flags.Count;
+            
+            if (Input.GetKeyDown(KeyCode.F3))
+            {
+                // This is a static method, that means you don't need to have an instance of the class to call it
+                var flag = AutomaticParty.PlaceFlag();
+                flag.name = "Flag: " + CurrentArea.Name;
+                flag.Index = FlagBehaviour.Flags.Count;
+            }
             
             // check if at gold cap
             if (Party.Party.Gold >= Party.Party.GoldCap && !_filteredItems!.Contains("Gold Coins"))
@@ -80,10 +94,15 @@ namespace Scripts
             // skip state behavior if script is not running
             if (!IsBotting) return;
             
+            // log our state
+            Debug.Log(_state.ToString());
+            
             // turn off AI
             if (Input.GetKeyDown(KeyCode.F4)) IsBotting = false;
             
             #region TransitionTable
+            
+            Debug.Log(_state.ToString());
             
             switch (_state)
             {
@@ -133,7 +152,8 @@ namespace Scripts
                 {
                     RunAwayFromNearestEnemy(RetreatDistance);
                     Debug.Log(_canUsePotion);
-                    if (Character.Equipment[EquipmentSlot.RightHand] == null)
+                    if (Character.Equipment[EquipmentSlot.RightHand] == null ||
+                        Character.Equipment[EquipmentSlot.RightHand].Item.name != "Vial of Health")
                     {
                         _canUsePotion = true;
                         _state = States.Heal;
@@ -205,6 +225,24 @@ namespace Scripts
                     break;
                 }
 
+                case States.Navigate:
+                {
+                    _target = null;
+                    
+                    if (Vector3.Distance(_destinationFlag!.transform.position,
+                            this.transform.position) > 5)
+                    {
+                        GoTo(_destinationFlag.transform.position);
+                        _state = States.Navigate;
+                        break;
+                    }
+                    Say($"Arrived at Flag: {_destinationFlag.Index}," +
+                        $" {_destinationFlag.name.Replace("Flag: ", "")}");
+                    
+                    _state = States.Stop;
+                    break;
+                }
+
                 case States.Attack:
                 {
                     if (_target)
@@ -260,7 +298,7 @@ namespace Scripts
                 case States.Stop:
                 {
                     // call this state to give more say commands.
-                    
+                    _target = null;
                     break;
                 }
 
@@ -281,12 +319,39 @@ namespace Scripts
         // listen for Say() commands
         public override void OnSay(string what, Transform target)
         {
+            if (what.ToLower().Contains("stop"))
+            {
+                StopAllCoroutines();
+                _state = States.Stop;
+                return;
+            }
+            if (what.ToLower().Contains("goto"))
+            {
+                var flagIndex = int.Parse(what.Split(' ')[1])- 1;
+                
+                if (FlagBehaviour.Flags.Count == 0)
+                {
+                    Say("Error: No flags placed.");
+                    return;
+                }
+
+                if (flagIndex >= FlagBehaviour.Flags.Count)
+                {
+                    Say("Error: No flag exists at this index.");
+                    return;
+                }
+                
+                _destinationFlag = FlagBehaviour.Flags[flagIndex];
+                
+                _state = States.Navigate;
+                return;
+            }
+            
             _state = what.ToLower() switch
             {
                 "loot" => _state = States.Loot,
-                "stop" => _state = States.Stop,
                 "start" => _state = States.Start,
-                _ => _state = States.Idle
+                _ => _state = States.Stop
             };
         }
         
