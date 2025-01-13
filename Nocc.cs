@@ -1,16 +1,16 @@
 // ReSharper disable RedundantUsingDirective
 // ReSharper disable UseCollectionExpression
 using GrindFest;
-using UnityEngine;
-using System.Collections.Generic;
-using System.Linq;
 using GrindFest.Characters;
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+using static Scripts.States;
 using static Scripts.Utilities.GearUtilities;
+using static Scripts.Utilities.GeneralUtilities;
 using static Scripts.Utilities.TargetUtilities;
-using Random = UnityEngine.Random;
-
 
 namespace Scripts
 {
@@ -26,8 +26,7 @@ namespace Scripts
         private HashSet<string>? _filteredItems = new HashSet<string>() { "Flag" };
         private bool _canUsePotion;
         private AreaBehaviour? _currentArea;
-        private FlagBehaviour? _destinationFlag;
-        private int _flagCount;
+        public FlagBehaviour? _destinationFlag;
 
         private static readonly List<string> IgnoredMobs = new List<string>()
         {
@@ -43,42 +42,25 @@ namespace Scripts
             "Mace"
         };
         
-        private enum States
-        {
-            Start,
-            Idle,
-            Retreat,
-            Heal,
-            MoveToTarget,
-            MoveAround,
-            Navigate,
-            FindTarget,
-            Attack,
-            Loot,
-            Stop,
-        }
-        
         #endregion
         
         #region EventLoop
         
         private void Start()
         {
-            _currentArea = this.CurrentArea;
+            _currentArea = CurrentArea;
             _target = null;
             _filteredItems = new HashSet<string>();
             _canUsePotion = true;
-            _state = States.Stop;
+            _state = Stop; 
         }
 
         private void Update()
         {
-            _currentArea = this.CurrentArea;
-            _flagCount = FlagBehaviour.Flags.Count;
+            _currentArea = CurrentArea;
             
             if (Input.GetKeyDown(KeyCode.F3))
             {
-                // This is a static method, that means you don't need to have an instance of the class to call it
                 var flag = AutomaticParty.PlaceFlag();
                 flag.name = "Flag: " + CurrentArea.Name;
                 flag.Index = FlagBehaviour.Flags.Count;
@@ -106,19 +88,19 @@ namespace Scripts
             
             switch (_state)
             {
-                case States.Start:
+                case Initial:
                 {
-                    _state = States.Idle;
+                    _state = Reset;
                     break;
                 }
 
-                case States.Idle:
+                case Reset:
                 {
                   
                     if (LowHp(30))
                     {
                         Debug.Log("LowHp");
-                        _state = States.Retreat;
+                        _state = Retreat;
                         break;
                     }
                   
@@ -127,28 +109,28 @@ namespace Scripts
                         
                         if (InAttackRange(_target, AttackRange, this))
                         {
-                            _state = States.Attack;
+                            _state = Attack;
                             break;
                         }
                         
                         // out of range
-                        _state = States.MoveToTarget;
+                        _state = MoveToTarget;
                         break;
                     }
                     
                     if (!_target)
                     {
                         // find new target
-                        _state = States.FindTarget;
+                        _state = Target;
                         break;
                     }
 
                     Say("Back to Idle");
-                    _state = States.Idle;
+                    _state = Reset;
                     break;
                 }
 
-                case States.Retreat:
+                case Retreat:
                 {
                     RunAwayFromNearestEnemy(RetreatDistance);
                     Debug.Log(_canUsePotion);
@@ -156,56 +138,56 @@ namespace Scripts
                         Character.Equipment[EquipmentSlot.RightHand].Item.name != "Vial of Health")
                     {
                         _canUsePotion = true;
-                        _state = States.Heal;
+                        _state = Heal;
                         break;
                     }
 
-                    if (this.Health >= MaxHealth * 0.8)
+                    if (!LowHp(50))
                     {
-                        _state = States.Idle;
+                        _state = Reset;
                         break;
                     }
                     
                     // keep running away if not ready to heal and hp not yet >80%
-                    _state = States.Retreat;
+                    _state = Retreat;
                     break;
                 }
 
-                case States.Heal:
+                case Heal:
                 {
                     if (HealthPotionCount() > 0 && _canUsePotion)
                     {
                         DrinkHealthPotion();
                         _canUsePotion = false;
-                        Say($"Drank potion: {this.HealthPotionCount()} left.");
+                        Say($"Drank potion: {HealthPotionCount()} left.");
                     }
                     
                     // go back to retreating while we heal.
-                    _state = States.Retreat;
+                    _state = Retreat;
                     break;
                 }
 
-                case States.MoveToTarget:
+                case MoveToTarget:
                 {
                     if (_target)
                     {
                         GoTo(_target.transform.position, AttackRange);
-                        _state = States.Idle;
+                        _state = Reset;
                         break;
                     }
                     
-                    _state = States.Idle;
+                    _state = Reset;
                     break;
                 }
 
-                case States.FindTarget:
+                case Target:
                 {
                     _target = FindTarget(SearchRange, IgnoredMobs, this);
                     
                     if (_target)
                     {
                         Say($"Target: {_target.name}: Distance: {GetTargetDistance(_target, this):0.0}");
-                        _state = States.Idle;
+                        _state = Reset;
                         break;
                     }
 
@@ -213,37 +195,29 @@ namespace Scripts
                     Say("No Target; Moving...");
                     _target = null;
                     
-                    _state = States.MoveAround;
+                    _state = MoveAround;
                     break;
                 }
 
-                case States.MoveAround:
+                case MoveAround:
                 {
                     // run around to search for a new target
                     RunAroundInArea();
-                    _state = States.Idle;
+                    _state = Reset;
                     break;
                 }
 
-                case States.Navigate:
+                case Navigate:
                 {
                     _target = null;
+
+                    if (!NavigateToFlag(_destinationFlag!, this)) _state = Navigate;
                     
-                    if (Vector3.Distance(_destinationFlag!.transform.position,
-                            this.transform.position) > 5)
-                    {
-                        GoTo(_destinationFlag.transform.position);
-                        _state = States.Navigate;
-                        break;
-                    }
-                    Say($"Arrived at Flag: {_destinationFlag.Index}," +
-                        $" {_destinationFlag.name.Replace("Flag: ", "")}");
-                    
-                    _state = States.Stop;
+                    _state = Stop;
                     break;
                 }
 
-                case States.Attack:
+                case Attack:
                 {
                     if (_target)
                     {
@@ -251,51 +225,51 @@ namespace Scripts
                         {
                             Say("Target Dead");
                             _target = null;
-                            _state = States.Loot;
+                            _state = Loot;
                             break;
                         }
                        
                         //Say($"Attacking. Target Distance: {GetTargetDistance(_target)}.");
-                        this.Character.UseSkill(this.Character.Combat.AttackSkill, null, _target!.transform.position);
-                        _state = States.Idle;
+                        Character.UseSkill(Character.Combat.AttackSkill, null, _target!.transform.position);
+                        _state = Reset;
                         break;
                         
                     }
                     
                     // no target. go back to idle.
-                    _state = States.Idle;
+                    _state = Reset;
                     break;
                 }
 
-                case States.Loot:
+                case Loot:
                 {
                     var itemFound = GetNearestFilteredItem(_filteredItems!, this);
                     if (!itemFound)
                     {
                         Debug.Log("No Item Found");
-                        _state = States.Idle;
+                        _state = Reset;
                         break;
                     }
                     
                     if (CheckForUpgradeAndEquip(itemFound, WantedWeaponTypes, this))
                     {
-                        _state = States.Loot;
+                        _state = Loot;
                         break;
                     }
 
                     if (!itemFound.Armor && !itemFound.Weapon )
                     {
                         if(PickUp(itemFound)) Say($"Acquired: {itemFound.name}");
-                        _state = States.Loot;
+                        _state = Loot;
                         break;
                     }
                     
-                    _state = States.Idle;
+                    _state = Reset;
                     break;
                     
                 }
                 
-                case States.Stop:
+                case Stop:
                 {
                     // call this state to give more say commands.
                     _target = null;
@@ -304,7 +278,7 @@ namespace Scripts
 
                 default:
                 {
-                    _state = States.Idle;
+                    _state = Reset;
                     break;
                 }
             }
@@ -319,47 +293,25 @@ namespace Scripts
         // listen for Say() commands
         public override void OnSay(string what, Transform target)
         {
-            if (what.ToLower().Contains("stop"))
-            {
-                StopAllCoroutines();
-                _state = States.Stop;
-                return;
-            }
-            if (what.ToLower().Contains("goto"))
-            {
-                var flagIndex = int.Parse(what.Split(' ')[1])- 1;
-                
-                if (FlagBehaviour.Flags.Count == 0)
-                {
-                    Say("Error: No flags placed.");
-                    return;
-                }
+            // get the state we will transition to after parsing the say string
+            var futureState = HandleSay(what, this);
 
-                if (flagIndex >= FlagBehaviour.Flags.Count)
-                {
-                    Say("Error: No flag exists at this index.");
-                    return;
-                }
-                
-                _destinationFlag = FlagBehaviour.Flags[flagIndex];
-                
-                _state = States.Navigate;
-                return;
+            if (futureState == Navigate)
+            {
+                // extract the flag index from a "goto" command and get the right FlagBehaviour
+                _destinationFlag = FlagBehaviour.Flags[int.Parse(what.ToLower().Split(' ')[1]) - 1];
             }
             
-            _state = what.ToLower() switch
-            {
-                "loot" => _state = States.Loot,
-                "start" => _state = States.Start,
-                _ => _state = States.Stop
-            };
+            // commit the state change
+            _state = futureState;
+            
         }
         
         // returns if HP is low or not
         private bool LowHp(float percentage)
         {
             percentage /= 100f;
-            return this.Health < this.MaxHealth * percentage;
+            return Health < MaxHealth * percentage;
         }
         
         #endregion

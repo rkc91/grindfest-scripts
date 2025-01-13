@@ -1,12 +1,11 @@
 // ReSharper disable RedundantUsingDirective
 using GrindFest;
-using UnityEngine;
-using System.Collections.Generic;
-using System.Linq;
 using GrindFest.Characters;
 using System;
 using System.Collections;
-using GrindFest;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
 
 namespace Scripts.Utilities
 {
@@ -31,6 +30,7 @@ namespace Scripts.Utilities
             return item.Armor.Armor;
         }
 
+        // returns true if weapon is a DPS increase.
         private static bool IsWeaponUpgrade(ItemBehaviour item, List<string> wantedWeaponTypes, AutomaticHero hero)
         {
             // bad type
@@ -43,7 +43,8 @@ namespace Scripts.Utilities
             
             return (GetWeaponDps(item) > GetWeaponDps(currentWeapon.Item));
         }
-
+        
+        // returns true if armor piece provides more armor.
         private static bool IsArmorUpgrade(ItemBehaviour item, AutomaticHero hero)
         {
             var itemSlot = item.equipable.Slot;
@@ -54,7 +55,8 @@ namespace Scripts.Utilities
             return GetArmorValue(item) > GetArmorValue(hero.Character.Equipment[itemSlot].Item);
         }
         
-        // returns a successful equip
+        // will check for upgrade and equip it if we can. will also keep replaced item.
+        // returns true for successful upgrade.
         public static bool CheckForUpgradeAndEquip(ItemBehaviour item, List<string> wantedWeaponTypes,
             AutomaticHero hero)
         {
@@ -62,18 +64,22 @@ namespace Scripts.Utilities
             
             if (!MeetsStatRequirements(item, hero)) return false;
 
+            // check for upgrades or if not-equippable
             if ((!item.Weapon || !IsWeaponUpgrade(item, wantedWeaponTypes, hero)) &&
                 (!item.Armor || !IsArmorUpgrade(item, hero)) ||
                 !item.equipable) return false;
-
-            var replacedItem = hero.Character.Equipment[item.equipable.Slot] != null ?
+            
+            // track our previous weapon if we had one
+            var replacedItem = hero.Character.Equipment[item.equipable.Slot] ?
                 hero.Character.Equipment[item.equipable.Slot].Item : null;
             
             if(!replacedItem) Debug.Log("No weapon to replace.");
             
+            // equip upgrade
             hero.Equip(item);
             hero.Say($"Upgrade! Equipped: {item.name}");
             
+            // grab our previous item we replaced
             if(replacedItem) hero.PickUp(replacedItem);
             
             return true;
