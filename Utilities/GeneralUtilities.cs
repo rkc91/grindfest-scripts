@@ -66,6 +66,11 @@ namespace Scripts.Utilities
 
                 }
 
+                case "loot":
+                {
+                    return Loot;
+                }
+
                 case "start":
                 {
                     return Initial;
@@ -73,8 +78,8 @@ namespace Scripts.Utilities
 
                 default:
                 {
-                    Debug.Log($"Error: Unknown command: {sayString}");
-                    return Stop;
+                    //Debug.Log($"Error: Unknown command: {sayString}");
+                    return Reset;
                 }
             }
         }

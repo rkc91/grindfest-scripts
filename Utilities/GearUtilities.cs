@@ -62,27 +62,19 @@ namespace Scripts.Utilities
         {
             if (!item) throw new ArgumentNullException(nameof(item));
             
-            if (!MeetsStatRequirements(item, hero)) return false;
-
-            // check for upgrades or if not-equippable
-            if ((!item.Weapon || !IsWeaponUpgrade(item, wantedWeaponTypes, hero)) &&
-                (!item.Armor || !IsArmorUpgrade(item, hero)) ||
-                !item.equipable) return false;
+            if (item.equipable)
+            {
+                if (!MeetsStatRequirements(item, hero)) return false;
+                
+                if (item.Weapon && IsWeaponUpgrade(item, wantedWeaponTypes, hero) ||
+                    item.Armor && IsArmorUpgrade(item, hero) && !item.Shield )
+                {
+                    hero.Equip(item);
+                    return true;
+                }
+            }
             
-            // track our previous weapon if we had one
-            var replacedItem = hero.Character.Equipment[item.equipable.Slot] ?
-                hero.Character.Equipment[item.equipable.Slot].Item : null;
-            
-            if(!replacedItem) Debug.Log("No weapon to replace.");
-            
-            // equip upgrade
-            hero.Equip(item);
-            hero.Say($"Upgrade! Equipped: {item.name}");
-            
-            // grab our previous item we replaced
-            if(replacedItem) hero.PickUp(replacedItem);
-            
-            return true;
+            return false;
         }
     }
 }

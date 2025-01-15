@@ -58,7 +58,10 @@ namespace Scripts
         private void Update()
         {
             _currentArea = CurrentArea;
-            
+            if (this.Character.Equipment[EquipmentSlot.RightHand] == null)
+            {
+                Debug.Log("No equipment available");
+            }
             if (Input.GetKeyDown(KeyCode.F3))
             {
                 var flag = AutomaticParty.PlaceFlag();
@@ -211,7 +214,11 @@ namespace Scripts
                 {
                     _target = null;
 
-                    if (!NavigateToFlag(_destinationFlag!, this)) _state = Navigate;
+                    if (!NavigateToFlag(_destinationFlag!, this))
+                    {
+                        _state = Navigate;
+                        break;
+                    }
                     
                     _state = Stop;
                     break;
@@ -257,7 +264,7 @@ namespace Scripts
                         break;
                     }
 
-                    if (!itemFound.Armor && !itemFound.Weapon )
+                    if (itemFound)
                     {
                         if(PickUp(itemFound)) Say($"Acquired: {itemFound.name}");
                         _state = Loot;
